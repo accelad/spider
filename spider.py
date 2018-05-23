@@ -4,6 +4,37 @@ import os
 from urllib.parse import urlparse
 
 import aiohttp
+from pyquery import PyQuery as pq
+
+
+class Model:
+    """
+    数据基类
+    暂时只提供类信息的打印功能
+    可自行定制 ORM
+    """
+    def __repr__(self):
+        name = self.__class__.__name__
+        properties = ('{}=({})'.format(k, v) for k, v in self.__dict__.items())
+        s = '\n<{} \n  {}>'.format(name, '\n  '.join(properties))
+        return s
+
+
+class Anime(Model):
+    """
+    存储动画信息
+    """
+    def __init__(self):
+        self.title = ''
+        self.image = ''
+        self.score = 0
+        self.ranked = 0
+        self.popularity = 0
+        self.members = 0
+        self.season = ''
+        self.type = ''
+        self.studio_or_author = ''
+        self.description = ''
 
 
 async def get(url, cache, **kwargs):
@@ -58,27 +89,52 @@ def cache_for_url(url, ext=None):
 
 async def fetch(url, **kwargs):
     cache = cache_for_url(url, '.html')
-    html = await get(url, cache, **kwargs)
-    await parse_html(html.decode())
+    page = await get(url, cache, **kwargs)
+    return await data_from_page(page)
 
 
-async def parse_html(html):
+async def data_from_page(page):
     """
     数据分析的入口，解析 dom
     """
-    print(html)
+    e = pq(page)
+    cells = e('.ranking-list')
+
+    fs = [anime_from_cell(c) for c in cells]
+    done, padding = await asyncio.wait(fs)
+
+    return (f.result() for f in done)
+
+
+async def anime_from_cell(cell):
+    e = pq(cell)
+    a = Anime()
+
+    a.ranked = int(e('.rank').text())
+    return a
+
+
+def handle_item(item):
+    """
+    数据处理的入口，存储、计算等
+    """
+    print(item)
 
 
 async def run():
     """
     爬虫执行的入口，构建 url 和 headers（如果需要）
     """
-    cs = []
+    fs = []
     for i in range(0, 500, 50):
         url = 'https://myanimelist.net/topanime.php?limit={}'.format(i)
-        cs.append(fetch(url))
+        f = fetch(url)
+        fs.append(f)
+    done, padding = await asyncio.wait(fs)
 
-    await asyncio.wait(cs)
+    for f in done:
+        for i in f.result():
+            handle_item(i)
 
 
 def main():
