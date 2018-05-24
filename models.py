@@ -33,14 +33,11 @@ class Anime(Model):
     存储动画信息
     """
     def __init__(self):
+        self.rank = 0
         self.title = ''
         self.url = ''
         self.image = ''
         self.score = 0
-        self.ranked = 0
-        self.popularity = 0
-        self.members = 0
-        self.season = ''
         self.type = ''
-        self.studio_or_author = ''
-        self.description = ''
+        self.time = ''
+        self.members = 0
