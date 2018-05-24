@@ -1,5 +1,4 @@
 import asyncio
-import collections
 import hashlib
 import os
 from urllib.parse import urlparse
@@ -7,108 +6,69 @@ from urllib.parse import urlparse
 import aiohttp
 from pyquery import PyQuery as pq
 
-
-class Model:
-    """
-    数据基类
-    暂时只提供类信息的打印功能
-    可自行定制 ORM
-    """
-    def __repr__(self):
-        name = self.__class__.__name__
-        properties = ('    {}=({})\n'.format(k, v) for k, v in self.__dict__.items())
-        s = '\n<{}\n{}>'.format(name, ''.join(properties))
-        return s
-
-    @classmethod
-    def recursive_iter(cls, iterable):
-        """
-        递归迭代器，用于迭代嵌套的序列中的 model
-        例如：[m1, m2, m3, [m4, m5]] ==> (m1, m2, m3, m4, m5)
-        """
-        for m in iterable:
-            if isinstance(m, cls):
-                yield m
-            elif isinstance(m, collections.Iterable):
-                yield from cls.recursive_iter(m)
-            else:
-                pass
+from models import Anime
 
 
-class Anime(Model):
-    """
-    存储动画信息
-    """
-    def __init__(self):
-        self.title = ''
-        self.image = ''
-        self.score = 0
-        self.ranked = 0
-        self.popularity = 0
-        self.members = 0
-        self.season = ''
-        self.type = ''
-        self.studio_or_author = ''
-        self.description = ''
-
-
-async def get(url, cache, **kwargs):
+async def get(session, url):
     """
     第一次下载时缓存到文件, 后续则从缓存中读取
     避免重复下载网页，浪费时间
     """
-    path = os.path.join('cache', cache)
-    # 确保目录存在
-    os.makedirs(os.path.dirname(path), exist_ok=True)
+    cache = cache_for_url(url)
 
     # 从缓存获取
-    if os.path.exists(path):
-        with open(path, 'rb') as f:
+    if os.path.exists(cache):
+        with open(cache, 'rb') as f:
             c = f.read()
             return c
 
     # 从网络获取
-    async with aiohttp.ClientSession(**kwargs) as session:
-        async with session.get(url) as response:
-            content = b''
-            with open(path, 'wb') as fd:
-                chunk_size = 1024
-                while True:
-                    chunk = await response.content.read(chunk_size)
-                    if len(chunk) > 0:
-                        content += chunk
-                        fd.write(chunk)
-                    else:
-                        break
+    async with session.get(url) as response:
+        # 写入文件前，确保目录存在
+        os.makedirs(os.path.dirname(cache), exist_ok=True)
+
+        content = b''
+        with open(cache, 'wb') as file:
+            chunk_size = 1024
+            while True:
+                chunk = await response.content.read(chunk_size)
+                if len(chunk) > 0:
+                    content += chunk
+                    file.write(chunk)
+                else:
+                    break
 
             return content
 
 
-def cache_for_url(url, ext=None):
+def cache_for_url(url):
     """
-    对 url 进行 hash 以得到用于存储的文件名
+    对 url 进行 hash 以得到用于缓存的文件路径
     """
-    if ext is None:
-        # 在未指定的情况下尝试从 url 获取后缀名
-        # 用于 get 静态资源
-        path = urlparse(url)[2]
+    # 尝试从 url 获取后缀名
+    path = urlparse(url)[2]
+    if '.' in path:
         # http://www.xxx.com/aaa.png?qqq=bbb
-        dot_idx = path.rfind('.')
-        # 需要包含后缀的点号
-        ext = path[dot_idx-1:]
+        file_ext = path.split('.')[1]
+    else:
+        # http://www.xxx.com/index?qqq=bbb
+        # 姑且不考虑其他没后缀的情况
+        file_ext = '.html'
 
-    name = hashlib.sha256(url.encode('ascii')).hexdigest()
-    c = '{}{}'.format(name, ext)
-    return c
+    n = hashlib.sha256(url.encode('ascii')).hexdigest()
+    name = '{}.{}'.format(n, file_ext)
 
-
-async def fetch(url, **kwargs):
-    cache = cache_for_url(url, '.html')
-    page = await get(url, cache, **kwargs)
-    return await data_from_page(page)
+    p = os.path.join('cache', name)
+    return p
 
 
-async def data_from_page(page):
+async def fetch(session, url):
+    page = await get(session, url)
+    rs = await results_from_page(page)
+    return rs
+
+
+async def results_from_page(page):
     """
     数据分析的入口，解析 dom
     """
@@ -142,15 +102,16 @@ async def run():
     """
     爬虫执行的入口，构建 url 和 headers（如果需要）
     """
-    fs = []
-    for i in range(0, 500, 50):
-        url = 'https://myanimelist.net/topanime.php?limit={}'.format(i)
-        f = fetch(url)
-        fs.append(f)
+    async with aiohttp.ClientSession() as session:
+        fs = []
+        for i in range(0, 500, 50):
+            url = 'https://myanimelist.net/topanime.php?limit={}'.format(i)
+            f = fetch(session, url)
+            fs.append(f)
 
-    done, padding = await asyncio.wait(fs)
-    rs = (f.result() for f in done)
-    handle_results(rs)
+        done, padding = await asyncio.wait(fs)
+        rs = (f.result() for f in done)
+        handle_results(rs)
 
 
 def main():
