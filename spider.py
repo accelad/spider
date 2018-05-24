@@ -1,4 +1,5 @@
 import asyncio
+import collections
 import hashlib
 import os
 from urllib.parse import urlparse
@@ -15,9 +16,23 @@ class Model:
     """
     def __repr__(self):
         name = self.__class__.__name__
-        properties = ('{}=({})'.format(k, v) for k, v in self.__dict__.items())
-        s = '\n<{} \n  {}>'.format(name, '\n  '.join(properties))
+        properties = ('    {}=({})\n'.format(k, v) for k, v in self.__dict__.items())
+        s = '\n<{}\n{}>'.format(name, ''.join(properties))
         return s
+
+    @classmethod
+    def recursive_iter(cls, iterable):
+        """
+        递归迭代器，用于迭代嵌套的序列中的 model
+        例如：[m1, m2, m3, [m4, m5]] ==> (m1, m2, m3, m4, m5)
+        """
+        for m in iterable:
+            if isinstance(m, cls):
+                yield m
+            elif isinstance(m, collections.Iterable):
+                yield from cls.recursive_iter(m)
+            else:
+                pass
 
 
 class Anime(Model):
@@ -99,11 +114,11 @@ async def data_from_page(page):
     """
     e = pq(page)
     cells = e('.ranking-list')
-
     fs = [anime_from_cell(c) for c in cells]
-    done, padding = await asyncio.wait(fs)
 
-    return (f.result() for f in done)
+    done, padding = await asyncio.wait(fs)
+    rs = (f.result() for f in done)
+    return rs
 
 
 async def anime_from_cell(cell):
@@ -114,11 +129,13 @@ async def anime_from_cell(cell):
     return a
 
 
-def handle_item(item):
+def handle_results(results):
     """
     数据处理的入口，存储、计算等
     """
-    print(item)
+    # 从 results 中递归取出所有的 Anime
+    for a in Anime.recursive_iter(results):
+        print(a)
 
 
 async def run():
@@ -130,11 +147,10 @@ async def run():
         url = 'https://myanimelist.net/topanime.php?limit={}'.format(i)
         f = fetch(url)
         fs.append(f)
-    done, padding = await asyncio.wait(fs)
 
-    for f in done:
-        for i in f.result():
-            handle_item(i)
+    done, padding = await asyncio.wait(fs)
+    rs = (f.result() for f in done)
+    handle_results(rs)
 
 
 def main():
