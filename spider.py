@@ -1,5 +1,5 @@
 import asyncio
-from itertools import chain
+import itertools
 
 from pyquery import PyQuery as pq
 
@@ -44,8 +44,6 @@ def anime_from_cell(cell):
 async def save_image(animes, session):
     tasks = []
     for a in animes:
-        print(a)
-
         url = a.image
         t = session.get(url)
         tasks.append(t)
@@ -62,7 +60,12 @@ async def run(**kwargs):
         tasks = (animes_from_url(url.format(i), session) for i in range(0, 1000, 50))
 
         rs = await asyncio.gather(*tasks)
-        animes = chain(*rs)
+        animes = itertools.chain(*rs)
+
+        # 仅用于显示
+        animes, animes_for_print = itertools.tee(animes)
+        for a in animes_for_print:
+            print(a)
 
         await save_image(animes, session)
 
